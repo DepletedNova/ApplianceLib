@@ -120,7 +120,8 @@ namespace ApplianceLib
                 {
                     new()
                     {
-                        Process = Refs.Find<Process>(ProcessReferences.Clean)
+                        Process = Refs.Find<Process>(ProcessReferences.Clean),
+                        Speed = 1f
                     }
                 };
                 washBasin.Properties = new()
@@ -189,7 +190,8 @@ namespace ApplianceLib
                 {
                     new()
                     {
-                        Process = Refs.Find<Process>(ProcessReferences.Clean)
+                        Process = Refs.Find<Process>(ProcessReferences.Clean),
+                        Speed = 1f
                     }
                 };
                 dishwasher.Properties = new()

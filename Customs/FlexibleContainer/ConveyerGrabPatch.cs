@@ -18,6 +18,10 @@ namespace ApplianceLib.Customs
             if (!ctx.Has<CIsInactive>(target) && ctx.Has<CLockedWhileDuration>(target))
                 return true;
 
+            // Check if processing items should be ignored
+            if (ctx.Require(target, out CTakesDuration cDuration) && (cDuration.Active || !cDuration.IsLocked) && grab.IgnoreProcessingItems)
+                return true;
+
             // Ensure the container is not empty
             var itemCount = container.Items.Count;
             if (itemCount <= 0 || container.Maximum <= 0)

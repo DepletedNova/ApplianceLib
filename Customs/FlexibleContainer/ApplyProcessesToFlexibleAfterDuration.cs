@@ -26,6 +26,7 @@ namespace ApplianceLib.Customs
         protected override void OnUpdate()
         {
             using var entities = query.ToEntityArray(Allocator.Temp);
+            using var ecb = new EntityCommandBuffer(Allocator.Temp);
 
             foreach (var entity in entities)
             {
@@ -62,8 +63,12 @@ namespace ApplianceLib.Customs
                 foreach (var (item, components) in convertedItems)
                     container.Items.Add(item, components);
 
+                CSoundEvent.Create(ecb, SoundEvent.ProcessComplete);
+
                 Set(entity, container);
             }
+
+            ecb.Playback(EntityManager);
 
         }
     }

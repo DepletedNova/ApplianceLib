@@ -59,7 +59,7 @@ namespace ApplianceLib.Customs
                         {
                             push.Progress += ___speed * ___dt;
                             push.State = CConveyPushItems.ConveyState.Push;
-                            if (___ctx.Require<CItemUndergoingProcess>(held.HeldItem, out var beingProcessed))
+                            if (___ctx.Has<CItemUndergoingProcess>(held.HeldItem))
                                 ___ecb.RemoveComponent<CItemUndergoingProcess>(held.HeldItem);
                         }
                         else

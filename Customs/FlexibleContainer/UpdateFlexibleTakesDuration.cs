@@ -1,6 +1,7 @@
 ﻿using ApplianceLib.Api;
 using Kitchen;
 using KitchenData;
+using KitchenLib.Utils;
 using KitchenMods;
 using System;
 using System.Collections.Generic;
@@ -41,26 +42,74 @@ namespace ApplianceLib.Customs
                     continue;
                 }
 
+                // Gather process speed modifiers
+                Dictionary<int, float> processSpeedModifiers = new();
+                Dictionary<int, float> processBadSpeedModifiers = new();
+                if (Has<CAffectedBy.Marker>(entity))
+                {
+                    foreach (CAffectedBy cAffected in GetBuffer<CAffectedBy>(entity))
+                    {
+                        if (Require(cAffected, out CAppliesEffect cApplies) && cApplies.IsActive && Require(cAffected, out CApplianceSpeedModifier cSpeedMod))
+                        {
+                            var index = cSpeedMod.AffectsAllProcesses ? 1 : cSpeedMod.Process;
+
+                            if (!processSpeedModifiers.ContainsKey(index))
+                                processSpeedModifiers[index] = 1f;
+                            processSpeedModifiers[index] *= 1f + cSpeedMod.Speed;
+
+                            if (!processBadSpeedModifiers.ContainsKey(index))
+                                processBadSpeedModifiers[index] = 1f;
+                            processBadSpeedModifiers[index] *= 1f + cSpeedMod.BadSpeed;
+                        }
+                    }
+                }
+
+                // Displayed Duration updating beginnings
+                var hasVisibleDuration = Require(entity, out CDisplayDuration cDisplayed);
+                int collectedBad = 0;
+                Dictionary<int, int> collectedProcesses = new();
+
+                var ignoresBad = Has<CNoBadProcesses>(entity);
+
                 var oldTotal = duration.Total;
-                List<float> totals = new();
+                List<float> totalProcessTime = new();
                 foreach (var itemID in container.Items.GetItems())
                 {
                     if (!GameData.Main.TryGet<Item>(itemID, out var item))
                         continue;
 
-                    var process = item.DerivedProcesses.Find(ip => appliance.Processes.Exists(ap => ip.Process.ID == ap.Process.ID));
-                    if (process.Equals(default(Item.ItemProcess)))
+                    var itemProcess = item.DerivedProcesses.Find(ip => appliance.Processes.Exists(ap => ip.Process.ID == ap.Process.ID));
+                    if (itemProcess.Equals(default(Item.ItemProcess)))
                         continue;
-                    totals.Add(process.Duration * processModifiers.ProcessTimeMultiplier);
+
+                    // Ignore bad processes if need be
+                    if (itemProcess.IsBad && ignoresBad)
+                        continue;
+
+                    var applianceProcess = appliance.Processes.Find(ap => ap.Process.ID == itemProcess.Process.ID);
+
+                    var modifier = itemProcess.IsBad ? (processBadSpeedModifiers.ContainsKey(1) ? processBadSpeedModifiers[1] : 1f) : (processSpeedModifiers.ContainsKey(1) ? processSpeedModifiers[1] : 1f);
+                    if (itemProcess.IsBad && processBadSpeedModifiers.ContainsKey(applianceProcess.Process.ID)) modifier *= processBadSpeedModifiers[applianceProcess.Process.ID];
+                    else if (!itemProcess.IsBad && processBadSpeedModifiers.ContainsKey(applianceProcess.Process.ID)) modifier *= processSpeedModifiers[applianceProcess.Process.ID];
+
+                    totalProcessTime.Add(itemProcess.Duration * processModifiers.ProcessTimeMultiplier / applianceProcess.Speed / modifier);
+
+                    // Gather the total amount of processes for updating the visible duration
+                    if (hasVisibleDuration)
+                    {
+                        if (itemProcess.IsBad) collectedBad++;
+                        if (!collectedProcesses.ContainsKey(applianceProcess.Process.ID)) collectedProcesses.Add(applianceProcess.Process.ID, 1);
+                        collectedProcesses[applianceProcess.Process.ID]++;
+                    }
                 }
 
                 var preferredTotal = processModifiers.ProcessType switch
                 {
-                    FlexibleProcessType.Additive => totals.Sum(),
-                    FlexibleProcessType.Average => totals.Count == 0 ? 0 : totals.Average(),
+                    FlexibleProcessType.Additive => totalProcessTime.Sum(),
+                    FlexibleProcessType.Average => totalProcessTime.Count == 0 ? 0 : totalProcessTime.Average(),
                     _ => oldTotal,
                 };
-                duration.IsLocked = duration.IsLocked || (container.Maximum > 0 && container.Items.Count < processModifiers.MinimumItems) || totals.Count == 0;
+                duration.IsLocked = duration.IsLocked || (container.Maximum > 0 && container.Items.Count < processModifiers.MinimumItems) || totalProcessTime.Count == 0;
                 var newTotal = Math.Max(processModifiers.MinimumProcessTime, preferredTotal);
                 if (!duration.IsLocked && newTotal != oldTotal)
                 {
@@ -68,6 +117,26 @@ namespace ApplianceLib.Customs
                     duration.Remaining += newTotal - oldTotal;
                 }
                 Set(entity, duration);
+
+                // Update displayed duration based on majority
+                if (hasVisibleDuration && !duration.IsLocked && !collectedProcesses.IsNullOrEmpty())
+                {
+                    cDisplayed.IsBad = collectedBad >= totalProcessTime.Count / 2f;
+
+                    var found = false;
+                    foreach (var processDictPair in collectedProcesses)
+                    {
+                        if (processDictPair.Value >= totalProcessTime.Count / 2f)
+                        {
+                            cDisplayed.Process = processDictPair.Key;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) cDisplayed.Process = collectedProcesses.First().Key;
+
+                    Set(entity, cDisplayed);
+                }
             }
         }
     }
